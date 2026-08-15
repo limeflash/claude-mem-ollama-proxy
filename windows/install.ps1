@@ -51,7 +51,7 @@ Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Silent
 
 $action   = New-ScheduledTaskAction -Execute $launcher
 $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings = New-ScheduledTaskSettingsSet `
+$taskSettings = New-ScheduledTaskSettingsSet `
                 -AllowStartIfOnBatteries `
                 -DontStopIfGoingOnBatteries `
                 -StartWhenAvailable `
@@ -62,7 +62,7 @@ $settings = New-ScheduledTaskSettingsSet `
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-    -Settings $settings -Principal $principal | Out-Null
+    -Settings $taskSettings -Principal $principal | Out-Null
 
 Start-ScheduledTask -TaskName $TaskName
 Start-Sleep -Seconds 3
@@ -70,9 +70,12 @@ Start-Sleep -Seconds 3
 Write-Host "==> pointing claude-mem at the proxy"
 Copy-Item $Settings "$Settings.bak-$(Get-Date -Format yyyyMMdd-HHmmss)" -Force
 $json = Get-Content $Settings -Raw | ConvertFrom-Json
-$json.CLAUDE_MEM_PROVIDER            = "openrouter"
-$json.CLAUDE_MEM_OPENROUTER_BASE_URL = "http://127.0.0.1:$Port/v1"
-$json.CLAUDE_MEM_OPENROUTER_MODEL    = $Model
+$updates = [ordered]@{
+    CLAUDE_MEM_PROVIDER            = "openrouter"
+    CLAUDE_MEM_OPENROUTER_BASE_URL = "http://127.0.0.1:$Port/v1"
+    CLAUDE_MEM_OPENROUTER_MODEL    = $Model
+}
+foreach ($k in $updates.Keys) { $json | Add-Member -NotePropertyName $k -NotePropertyValue $updates[$k] -Force }
 $json | ConvertTo-Json -Depth 10 | Set-Content $Settings -Encoding UTF8
 
 Write-Host "  base URL = $($json.CLAUDE_MEM_OPENROUTER_BASE_URL)"
