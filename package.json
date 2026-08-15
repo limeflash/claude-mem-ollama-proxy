@@ -1,0 +1,17 @@
+{
+  "name": "claude-mem-ollama-proxy",
+  "version": "1.1.0",
+  "description": "Local proxy that lets claude-mem use Ollama Cloud models with reasoning disabled and secrets stripped from the conversation.",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test-redact.js && node test-smoke.js && node test-proxy.js",
+    "test:unit": "node test-redact.js",
+    "test:smoke": "node test-smoke.js",
+    "test:proxy": "node test-proxy.js",
+    "start": "node proxy.js"
+  }
+}

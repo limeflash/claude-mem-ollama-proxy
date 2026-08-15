@@ -1,11 +1,12 @@
 # claude-mem ↔ Ollama Cloud proxy
 
-A ~90-line, zero-dependency local proxy that lets [claude-mem](https://github.com/thedotmack/claude-mem) use **Ollama Cloud** models with **reasoning turned off**.
+A zero-dependency local proxy that lets [claude-mem](https://github.com/thedotmack/claude-mem) use **Ollama Cloud** models with **reasoning turned off** and **credentials stripped out of the conversation**.
 
-Two problems it solves, in order of how much they hurt:
+Three problems it solves, in order of how much they hurt:
 
-1. claude-mem has no Ollama option in its installer — you have to route it through the "OpenAI-compatible" path, and the installer never asks for a base URL. Left alone it sends your Ollama key to `openrouter.ai` and every request fails with `401`.
-2. Even once the URL is fixed, reasoning models keep reasoning. claude-mem cannot turn that off, because it builds its request body with a fixed shape and never reads the `reasoning` field back.
+1. **Secrets leave your machine.** claude-mem sends conversation content to the model verbatim. Its own redaction only ever touches its log files — never the payload. A `.env` file the agent reads, or a token printed by a command, goes straight to the provider.
+2. claude-mem has no Ollama option in its installer — you have to route it through the "OpenAI-compatible" path, and the installer never asks for a base URL. Left alone it sends your Ollama key to `openrouter.ai` and every request fails with `401`.
+3. Even once the URL is fixed, reasoning models keep reasoning. claude-mem cannot turn that off, because it builds its request body with a fixed shape and never reads the `reasoning` field back.
 
 ---
 
@@ -47,6 +48,77 @@ Same prompt (`Reply with exactly: OK`), same model:
 | `"reasoning_effort": "none"` | 0 chars | `OK` | **2** |
 
 13× fewer output tokens, and the empty-response failure mode disappears.
+
+---
+
+## Secret redaction
+
+Everything in `messages` is scanned before it leaves the machine. `model`,
+`temperature` and the rest of the body are never touched, and the
+`Authorization` header is forwarded intact — the proxy strips secrets *out of
+the conversation*, not out of your authentication.
+
+Covered:
+
+| category | examples |
+|---|---|
+| provider keys | Anthropic, OpenAI, GitHub (classic + fine-grained), GitLab, Slack, AWS, Google, Stripe, npm, OpenRouter |
+| tokens | JWTs, `Authorization: Bearer …` pasted into text |
+| private keys | any `-----BEGIN … PRIVATE KEY-----` block |
+| connection strings | `scheme://user:pass@host`, including the password-only `redis://:pass@host` form |
+| assignments | `.env`, JSON, YAML, TOML, INI, shell `export` |
+| command lines | `mysql -p'…'`, `--password=…`, `curl -u user:pass` |
+| markup | `<password>…</password>` and friends |
+| prose | "the password is …", "пароль: …" |
+| **seed phrases** | BIP-39 mnemonics, 12–24 words, in any layout |
+
+Seed phrases get real treatment rather than a guess: the canonical 2048-word
+BIP-39 list is embedded, and a run of twelve or more consecutive dictionary
+words is redacted whatever the layout — plain, uppercase, comma-separated,
+numbered, newline-separated, JSON array, or a markdown table row.
+
+### What it deliberately does not touch
+
+Over-redaction is the worse failure: it silently degrades every memory
+claude-mem stores. So git SHAs, UUIDs, file paths, hex digests, version
+numbers, `password: incorrect`, and ordinary prose that happens to contain
+BIP-39 words are all left alone. The test suite asserts this explicitly.
+
+### The placeholder
+
+A secret is replaced, not deleted, so the surrounding structure survives and
+the model still understands the shape of what it is reading:
+
+```
+AWS_SECRET_ACCESS_KEY=[SECRET:assigned-secret]
+seed: [SECRET:seed-phrase]
+DATABASE_URL=postgres://appuser:[SECRET:url-credentials]@db.internal:5432/app
+```
+
+Set `CMP_REDACT_PLACEHOLDER` to change it — `{type}` expands to the rule that
+matched. `'SECRET'` or `'******'` work if you prefer something plainer.
+`CMP_REDACT=false` disables redaction entirely.
+
+Each request logs counts only, never values:
+
+```
+POST /v1/chat/completions -> 200 [reasoning_effort=none] [redacted: seed-phrase×1, url-credentials×1, assigned-secret×3]
+```
+
+---
+
+## Tests
+
+```bash
+npm test          # all three suites
+node test-redact.js   # unit — 51 cases, both "must redact" and "must not"
+node test-smoke.js    # whole realistic documents, incl. a control with nothing to redact
+node test-proxy.js    # integration — boots a fake upstream and the real proxy
+```
+
+The integration suite exists because it is the only one that catches a broken
+server: the unit tests all passed once while a typo in the logging line was
+crashing the proxy on every response.
 
 ---
 
@@ -208,8 +280,10 @@ Environment variables read by `proxy.js` (set by the installers):
 |---|---|---|
 | `CMP_PORT` | `11435` | local listen port |
 | `CMP_HOST` | `127.0.0.1` | local bind address |
-| `CMP_UPSTREAM` | `ollama.com` | upstream host (HTTPS) |
+| `CMP_UPSTREAM` | `ollama.com` | upstream: bare host (HTTPS assumed) or a full URL |
 | `CMP_REASONING_EFFORT` | `none` | value injected into each request |
+| `CMP_REDACT` | `true` | set to `false` to disable secret redaction |
+| `CMP_REDACT_PLACEHOLDER` | `[SECRET:{type}]` | replacement text; `{type}` = matching rule |
 
 ---
 

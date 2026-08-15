@@ -10,7 +10,13 @@
 // claude-mem never reads.
 //
 // This proxy injects `reasoning_effort: "none"` into every chat-completion
-// request and forwards everything else untouched.
+// request, strips credentials out of the conversation, and forwards everything
+// else untouched.
+//
+// The redaction matters as much as the reasoning switch: claude-mem sends
+// message content to the model verbatim — its own scrubber only ever touches
+// its log files — so a .env file or a token in command output would otherwise
+// leave the machine. This is the last point where that can be stopped.
 //
 // The Authorization header is passed straight through and never logged.
 //
@@ -18,34 +24,56 @@
 
 const http = require('node:http');
 const https = require('node:https');
+const { redactBody, formatHits } = require('./redact');
 
 const PORT = Number(process.env.CMP_PORT || 11435);
 const HOST = process.env.CMP_HOST || '127.0.0.1';
-const UPSTREAM = process.env.CMP_UPSTREAM || 'ollama.com';
 const EFFORT = process.env.CMP_REASONING_EFFORT || 'none';
+const REDACT = process.env.CMP_REDACT !== 'false';
+
+// CMP_UPSTREAM accepts a bare host ("ollama.com", HTTPS assumed) or a full URL
+// ("http://127.0.0.1:11434"). The URL form points the proxy at a local Ollama —
+// nothing leaves the machine then — and is what the integration test uses.
+const RAW_UPSTREAM = process.env.CMP_UPSTREAM || 'ollama.com';
+const UP = RAW_UPSTREAM.includes('://')
+  ? new URL(RAW_UPSTREAM)
+  : new URL(`https://${RAW_UPSTREAM}`);
+const UPSTREAM = UP.hostname;
+const UP_PORT = UP.port ? Number(UP.port) : (UP.protocol === 'http:' ? 80 : 443);
+const UP_CLIENT = UP.protocol === 'http:' ? http : https;
 
 // Hop-by-hop headers that must not be forwarded verbatim.
 const DROP = new Set(['host', 'content-length', 'connection']);
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
-// Add reasoning_effort without disturbing anything else. If the body is not
-// a JSON object, or the caller already set the field, the bytes pass through
-// unchanged.
-function injectEffort(raw) {
+// Parse once, apply both transforms, serialise once. A body that is not a JSON
+// object passes through untouched — we never fail a request over this.
+function transform(raw) {
   let body;
   try {
     body = JSON.parse(raw.toString('utf8'));
   } catch {
-    return { buf: raw, changed: false };
+    return { buf: raw, effort: false, hits: {} };
   }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    return { buf: raw, changed: false };
+    return { buf: raw, effort: false, hits: {} };
   }
-  if ('reasoning_effort' in body) return { buf: raw, changed: false };
 
-  body.reasoning_effort = EFFORT;
-  return { buf: Buffer.from(JSON.stringify(body), 'utf8'), changed: true };
+  let effort = false;
+  if (!('reasoning_effort' in body)) {
+    body.reasoning_effort = EFFORT;
+    effort = true;
+  }
+
+  let hits = {};
+  if (REDACT) {
+    const r = redactBody(body);
+    body = r.body;
+    hits = r.hits;
+  }
+
+  return { buf: Buffer.from(JSON.stringify(body), 'utf8'), effort, hits };
 }
 
 const server = http.createServer((req, res) => {
@@ -57,21 +85,25 @@ const server = http.createServer((req, res) => {
     const raw = Buffer.concat(chunks);
     const isCompletion = req.url.includes('/chat/completions');
 
-    const { buf, changed } = isCompletion && raw.length
-      ? injectEffort(raw)
-      : { buf: raw, changed: false };
+    const { buf, effort, hits } = isCompletion && raw.length
+      ? transform(raw)
+      : { buf: raw, effort: false, hits: {} };
 
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) {
       if (!DROP.has(k.toLowerCase())) headers[k] = v;
     }
-    headers.host = UPSTREAM;
+    headers.host = UP.host;
     if (buf.length) headers['content-length'] = String(buf.length);
 
-    const upstream = https.request(
-      { hostname: UPSTREAM, port: 443, path: req.url, method: req.method, headers },
+    const upstream = UP_CLIENT.request(
+      { hostname: UPSTREAM, port: UP_PORT, path: req.url, method: req.method, headers },
       (up) => {
-        log(`${req.method} ${req.url} -> ${up.statusCode}${changed ? ` [reasoning_effort=${EFFORT}]` : ''}`);
+        const notes = [];
+        if (effort) notes.push(`reasoning_effort=${EFFORT}`);
+        const redacted = formatHits(hits);
+        if (redacted) notes.push(`redacted: ${redacted}`);
+        log(`${req.method} ${req.url} -> ${up.statusCode}${notes.length ? ` [${notes.join('] [')}]` : ''}`);
         res.writeHead(up.statusCode, up.headers);
         up.pipe(res); // streamed responses pass through untouched
       }
@@ -89,7 +121,8 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  log(`claude-mem proxy: http://${HOST}:${PORT} -> https://${UPSTREAM} (reasoning_effort=${EFFORT})`);
+  log(`claude-mem proxy: http://${HOST}:${PORT} -> ${UP.protocol}//${UP.host} ` +
+      `(reasoning_effort=${EFFORT}, redact=${REDACT ? 'on' : 'OFF'})`);
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {

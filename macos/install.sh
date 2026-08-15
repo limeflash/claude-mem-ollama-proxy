@@ -30,7 +30,9 @@ NODE="$(command -v node || true)"
 
 echo "==> installing proxy to $DEST"
 mkdir -p "$DEST"
-cp "$REPO_ROOT/proxy.js" "$DEST/proxy.js"
+for f in proxy.js redact.js bip39-words.js; do
+    cp "$REPO_ROOT/$f" "$DEST/$f"
+done
 
 echo "==> writing $PLIST"
 mkdir -p "$HOME/Library/LaunchAgents"
@@ -65,6 +67,15 @@ plutil -lint "$PLIST" >/dev/null
 
 echo "==> (re)loading launch agent"
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+
+# bootout only *starts* the teardown. Bootstrapping while the old service is
+# still dying fails with "Bootstrap failed: 5: Input/output error", so wait for
+# the label to actually disappear before loading the new one.
+for _ in $(seq 1 50); do
+    launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break
+    sleep 0.2
+done
+
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 sleep 2
 

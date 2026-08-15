@@ -31,7 +31,9 @@ if (-not (Test-Path $Settings)) { throw "$Settings not found - run 'npx claude-m
 
 Write-Host "==> installing proxy to $Dest"
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-Copy-Item (Join-Path $RepoRoot "proxy.js") (Join-Path $Dest "proxy.js") -Force
+foreach ($f in @("proxy.js", "redact.js", "bip39-words.js")) {
+    Copy-Item (Join-Path $RepoRoot $f) (Join-Path $Dest $f) -Force
+}
 
 # A small launcher keeps the env vars and the log redirect in one place, so the
 # scheduled task itself stays a plain "run this script" entry.
