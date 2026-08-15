@@ -76,7 +76,13 @@ $updates = [ordered]@{
     CLAUDE_MEM_OPENROUTER_MODEL    = $Model
 }
 foreach ($k in $updates.Keys) { $json | Add-Member -NotePropertyName $k -NotePropertyValue $updates[$k] -Force }
-$json | ConvertTo-Json -Depth 10 | Set-Content $Settings -Encoding UTF8
+# Set-Content -Encoding UTF8 writes a BOM on Windows PowerShell 5.1, and a BOM
+# makes strict JSON parsers reject the file outright. Write it BOM-less.
+[System.IO.File]::WriteAllText(
+    $Settings,
+    ($json | ConvertTo-Json -Depth 10),
+    (New-Object System.Text.UTF8Encoding($false))
+)
 
 Write-Host "  base URL = $($json.CLAUDE_MEM_OPENROUTER_BASE_URL)"
 Write-Host "  model    = $($json.CLAUDE_MEM_OPENROUTER_MODEL)"
