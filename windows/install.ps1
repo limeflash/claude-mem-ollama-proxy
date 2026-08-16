@@ -46,10 +46,23 @@ set CMP_REASONING_EFFORT=none
 "$($node.Source)" "$Dest\proxy.js" >> "$Dest\proxy.log" 2>&1
 "@ | Set-Content -Path $launcher -Encoding ASCII
 
+# Running the .cmd directly gives the task a console window the user can focus
+# and Ctrl+C -- which kills the proxy while the claude-mem worker keeps
+# reporting healthy, so memory generation fails silently against a closed port.
+# This shim starts the same launcher with the window hidden, and refuses to
+# start a second instance if the port is already served.
+$starter = Join-Path $Dest "start-proxy.ps1"
+@"
+`$ErrorActionPreference = 'SilentlyContinue'
+try { `$null = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop; exit 0 } catch { }
+Start-Process -FilePath "`$env:ComSpec" -ArgumentList '/c', '"$launcher"' -WindowStyle Hidden
+"@ | Set-Content -Path $starter -Encoding ASCII
+
 Write-Host "==> registering scheduled task '$TaskName'"
 Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 
-$action   = New-ScheduledTaskAction -Execute $launcher
+$action   = New-ScheduledTaskAction -Execute "powershell.exe" `
+                -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$starter`""
 $trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $taskSettings = New-ScheduledTaskSettingsSet `
                 -AllowStartIfOnBatteries `
