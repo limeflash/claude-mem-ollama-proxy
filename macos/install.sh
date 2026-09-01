@@ -30,8 +30,13 @@ NODE="$(command -v node || true)"
 
 echo "==> installing proxy to $DEST"
 mkdir -p "$DEST"
-for f in proxy.js redact.js bip39-words.js; do
-    cp "$REPO_ROOT/$f" "$DEST/$f"
+# Every runtime module, tests excluded. A hardcoded list silently shipped a
+# broken install once think.js was added: proxy.js required it, the installer
+# did not copy it, and the agent died on MODULE_NOT_FOUND at launch.
+for f in "$REPO_ROOT"/*.js; do
+    base=$(basename "$f")
+    case "$base" in test-*) continue ;; esac
+    cp "$f" "$DEST/$base"
 done
 
 echo "==> writing $PLIST"

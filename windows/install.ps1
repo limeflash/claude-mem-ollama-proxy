@@ -31,9 +31,10 @@ if (-not (Test-Path $Settings)) { throw "$Settings not found - run 'npx claude-m
 
 Write-Host "==> installing proxy to $Dest"
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-foreach ($f in @("proxy.js", "redact.js", "bip39-words.js")) {
-    Copy-Item (Join-Path $RepoRoot $f) (Join-Path $Dest $f) -Force
-}
+# Every runtime module, tests excluded — see the note in macos/install.sh.
+Get-ChildItem -Path $RepoRoot -Filter *.js -File |
+    Where-Object { $_.Name -notlike "test-*" } |
+    ForEach-Object { Copy-Item $_.FullName (Join-Path $Dest $_.Name) -Force }
 
 # A small launcher keeps the env vars and the log redirect in one place, so the
 # scheduled task itself stays a plain "run this script" entry.
