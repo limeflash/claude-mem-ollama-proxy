@@ -33,7 +33,7 @@ const EFFORT = process.env.CMP_REASONING_EFFORT || 'none';
 const REDACT = process.env.CMP_REDACT !== 'false';
 // Model to retry with when a thinking model is refused (usage limits, outages).
 // Empty string disables the fallback.
-const FALLBACK = process.env.CMP_THINK_FALLBACK ?? 'deepseek-v4-flash:0731';
+const FALLBACK = process.env.CMP_THINK_FALLBACK ?? 'deepseek-v4.1-flash';
 
 // CMP_UPSTREAM accepts a bare host ("ollama.com", HTTPS assumed) or a full URL
 // ("http://127.0.0.1:11434"). The URL form points the proxy at a local Ollama —

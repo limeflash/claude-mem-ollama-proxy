@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the proxy as a launchd user agent and point claude-mem at it.
 #
-#   ./macos/install.sh                       # deepseek-v4-flash:0731
+#   ./macos/install.sh                       # deepseek-v4.1-flash
 #   ./macos/install.sh --model gpt-oss:120b  # any Ollama Cloud model
 #   ./macos/install.sh --port 11500
 #
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 PORT=11435
-MODEL="deepseek-v4-flash:0731"
+MODEL="deepseek-v4.1-flash"
 LABEL="com.claude-mem.ollama-proxy"
 DEST="$HOME/.claude-mem-proxy"
 SETTINGS="$HOME/.claude-mem/settings.json"

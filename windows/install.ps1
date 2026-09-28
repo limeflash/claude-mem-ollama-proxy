@@ -15,7 +15,7 @@
 [CmdletBinding()]
 param(
     [int]$Port = 11435,
-    [string]$Model = "deepseek-v4-flash:0731"
+    [string]$Model = "deepseek-v4.1-flash"
 )
 
 $ErrorActionPreference = "Stop"
