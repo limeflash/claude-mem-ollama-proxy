@@ -1,5 +1,7 @@
 # claude-mem ↔ Ollama Cloud proxy
 
+> **Archived (2026-10-07).** Superseded by [limeflash/quipu](https://github.com/limeflash/quipu), a fork of [engram](https://github.com/Gentleman-Programming/engram) that captures agent memory natively: Ollama Cloud through `/api/chat` with thinking off, secrets redacted before anything is sent, ~6k input tokens per call instead of claude-mem's ~150k, and Codex / Claude fallbacks when the Ollama quota runs out. The code below still works but is no longer maintained.
+
 A zero-dependency local proxy that lets [claude-mem](https://github.com/thedotmack/claude-mem) use **Ollama Cloud** models with **reasoning turned off** and **credentials stripped out of the conversation**.
 
 Three problems it solves, in order of how much they hurt:
