@@ -26,6 +26,7 @@ const http = require('node:http');
 const https = require('node:https');
 const { redactBody, formatHits } = require('./redact');
 const think = require('./think');
+const { trimHistory } = require('./trim');
 
 const PORT = Number(process.env.CMP_PORT || 11435);
 const HOST = process.env.CMP_HOST || '127.0.0.1';
@@ -58,10 +59,10 @@ function transform(raw) {
   try {
     body = JSON.parse(raw.toString('utf8'));
   } catch {
-    return { buf: raw, effort: false, hits: {}, body: null };
+    return { buf: raw, effort: false, hits: {}, body: null, trimmed: 0 };
   }
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    return { buf: raw, effort: false, hits: {}, body: null };
+    return { buf: raw, effort: false, hits: {}, body: null, trimmed: 0 };
   }
 
   let effort = false;
@@ -70,6 +71,8 @@ function transform(raw) {
     effort = true;
   }
 
+  const trimmed = trimHistory(body);
+
   let hits = {};
   if (REDACT) {
     const r = redactBody(body);
@@ -77,7 +80,7 @@ function transform(raw) {
     hits = r.hits;
   }
 
-  return { buf: Buffer.from(JSON.stringify(body), 'utf8'), effort, hits, body };
+  return { buf: Buffer.from(JSON.stringify(body), 'utf8'), effort, hits, body, trimmed };
 }
 
 const server = http.createServer((req, res) => {
@@ -89,9 +92,9 @@ const server = http.createServer((req, res) => {
     const raw = Buffer.concat(chunks);
     const isCompletion = req.url.includes('/chat/completions');
 
-    const { buf, effort, hits, body } = isCompletion && raw.length
+    const { buf, effort, hits, body, trimmed } = isCompletion && raw.length
       ? transform(raw)
-      : { buf: raw, effort: false, hits: {}, body: null };
+      : { buf: raw, effort: false, hits: {}, body: null, trimmed: 0 };
 
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) {
@@ -114,6 +117,7 @@ const server = http.createServer((req, res) => {
           up.on('data', (c) => parts.push(c));
           up.on('end', () => {
             const notes = ['native think'];
+            if (trimmed) notes.push(`trimmed ${trimmed} old msgs`);
             const redacted = formatHits(hits);
             if (redacted) notes.push(`redacted: ${redacted}`);
             let out;
@@ -174,6 +178,7 @@ const server = http.createServer((req, res) => {
       (up) => {
         const notes = [];
         if (effort) notes.push(`reasoning_effort=${EFFORT}`);
+        if (trimmed) notes.push(`trimmed ${trimmed} old msgs`);
         const redacted = formatHits(hits);
         if (redacted) notes.push(`redacted: ${redacted}`);
         log(`${req.method} ${req.url} -> ${up.statusCode}${notes.length ? ` [${notes.join('] [')}]` : ''}`);
